@@ -1,24 +1,45 @@
 import streamlit as st
 import pandas as pd
 
-# --- STYLING: WHITE/GREY/GREEN THEME ---
-st.set_page_config(layout="wide", page_title="Margin Calculator")
+# --- STYLING: REFINED TRANSPARENT GREY & GREEN ---
+st.set_page_config(layout="wide", page_title="Margin Engine")
 
 st.markdown("""
     <style>
     .stApp { background-color: white; color: #1E824C; font-family: 'Courier New', Courier, monospace; }
-    [data-testid="stVerticalBlock"] > div:nth-child(1) { background-color: #f2f2f2; border-radius: 5px; }
-    .summary-box { border: 2px solid #1E824C; padding: 20px; border-radius: 10px; background-color: white; }
-    h1, h2, h3, h4, p, span, label { color: #1E824C !important; }
+    
+    /* Light Transparent Grey for the Control Panel Area */
+    [data-testid="stVerticalBlock"] > div:nth-child(1) { 
+        background-color: rgba(242, 242, 242, 0.5); 
+        border-radius: 10px; 
+        padding: 15px;
+    }
+    
+    /* The Boxed Summary Section */
+    .summary-box {
+        border: 2px solid #1E824C;
+        padding: 25px;
+        border-radius: 15px;
+        background-color: white;
+        margin-top: 20px;
+    }
+    
+    /* Ensure all text/labels remain Green */
+    h1, h2, h3, h4, p, span, label, div { color: #1E824C !important; }
     .block-container { padding-top: 2rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- MATH LOGIC ---
-def calculate_metrics(df, type="price"):
+# --- BACKEND LOGIC: AUTOMATED OUTPUTS ---
+def apply_formulas(df, type="price"):
+    """Calculates Growth and Discount as non-editable outputs"""
     df = df.copy()
+    # Growth: (Current Tier - Prev Tier) / Prev Tier
     df['Growth %'] = df['Tier Max'].pct_change().fillna(0) * 100
-    df['Discount %'] = (df['Price' if type == "price" else 'Rate %'].pct_change().fillna(0)) * 100
+    
+    # Discount: -(Prev Price - Current Price) / Prev Price
+    col = 'Price' if type == "price" else 'Rate %'
+    df['Discount %'] = df[col].pct_change().fillna(0) * 100
     return df
 
 def get_margin(val, tiers_upper, rates, mode, is_percentage=False):
@@ -38,41 +59,54 @@ def get_margin(val, tiers_upper, rates, mode, is_percentage=False):
             if val <= tiers[i]: return val * adj_rates[i]
         return val * adj_rates[-1]
 
-# --- SIDEBAR RESET ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("CONTROLS")
-    if st.button("RESET TO DEFAULTS"):
+    if st.button("RESET DEFAULTS"):
         st.rerun()
 
-# --- APP LAYOUT ---
+# --- MAIN INTERFACE ---
 st.title("PRICING COMPARISON ENGINE")
 
 col_curr, col_prop = st.columns(2)
+
+# Global Column Configuration (Formats numbers with commas and % signs)
+table_config = {
+    "Tier Max": st.column_config.NumberColumn("Tier Max", format="%d"),
+    "Price": st.column_config.NumberColumn("Price", format="%.2f"),
+    "Rate %": st.column_config.NumberColumn("Rate %", format="%.3f%%"),
+    "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%", help="Automated Output"),
+    "Discount %": st.column_config.NumberColumn("Discount %", format="%.1f%%", help="Automated Output")
+}
 
 def render_section(label):
     with st.container():
         st.subheader(f"{label.upper()} SETUP")
         
-        # Formatted Inputs
+        # Inputs with Thousand Separators (using format="%d")
         tx = st.number_input(f"Transactions ({label})", value=4200, step=1, format="%d", key=f"tx_{label}")
         vol = st.number_input(f"Volume ({label})", value=4000000000, step=1000, format="%d", key=f"vol_{label}")
         
-        # Config for tables to prevent long lines
-        col_cfg = {
-            "Tier Max": st.column_config.NumberColumn("Tier Max", format="%d"),
-            "Price": st.column_config.NumberColumn("Price", format="%.2f"),
-            "Rate %": st.column_config.NumberColumn("Rate %", format="%.3f%%"),
-            "Growth %": st.column_config.NumberColumn("Growth %", format="%.1f%%"),
-            "Discount %": st.column_config.NumberColumn("Discount %", format="%.1f%%")
-        }
-
         st.markdown("#### PROCESSING FEES")
         p_data = pd.DataFrame({"Tier Max": [100000, 500000, 1000000], "Price": [10.0, 9.0, 8.0]})
-        p_edit = st.data_editor(calculate_metrics(p_data, "price"), num_rows="dynamic", key=f"p_{label}", column_config=col_cfg)
+        # We display the calculated metrics but disable editing on those specific columns
+        p_edit = st.data_editor(
+            apply_formulas(p_data, "price"), 
+            num_rows="dynamic", 
+            key=f"p_{label}", 
+            column_config=table_config,
+            disabled=["Growth %", "Discount %"]
+        )
         
         st.markdown("#### ACQUIRING MARKUP")
         a_data = pd.DataFrame({"Tier Max": [300000000, 1000000000, 5000000000], "Rate %": [0.600, 0.492, 0.402]})
-        a_edit = st.data_editor(calculate_metrics(a_data, "rate"), num_rows="dynamic", key=f"a_{label}", column_config=col_cfg)
+        a_edit = st.data_editor(
+            apply_formulas(a_data, "rate"), 
+            num_rows="dynamic", 
+            key=f"a_{label}", 
+            column_config=table_config,
+            disabled=["Growth %", "Discount %"]
+        )
 
         p_m = get_margin(tx, p_edit["Tier Max"].tolist(), p_edit["Price"].tolist(), "Waterfall")
         a_m = get_margin(vol, a_edit["Tier Max"].tolist(), a_edit["Rate %"].tolist(), "Waterfall", is_percentage=True)
@@ -86,6 +120,7 @@ with col_prop:
     res_p = render_section("Proposal")
 
 # --- FINAL BOXED COMPARISON ---
+# The logic here is wrapped in a single <div> to ensure the box contains everything
 st.markdown('<div class="summary-box">', unsafe_allow_html=True)
 st.subheader("FINAL MARGIN COMPARISON")
 
